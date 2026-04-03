@@ -18,26 +18,39 @@ stages:
       vmImage: ubuntu-latest
     steps:
 
-    # ✅ Install Terraform (FAST & RELIABLE)
+    # ✅ Install Terraform
     - task: TerraformInstaller@1
       inputs:
         terraformVersion: '1.6.6'
 
-    # ✅ Run Terraform
-    - task: AzureCLI@2
+    # ✅ Terraform Init
+    - task: TerraformTaskV4@4
+      displayName: Terraform Init
       inputs:
-        azureSubscription: 'azure-connection'
-        scriptType: bash
-        scriptLocation: inlineScript
-        inlineScript: |
-          cd terraform/envs/dev
-          terraform init
-          terraform apply -auto-approve
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: 'terraform/envs/dev'   # 🔥 IMPORTANT
+        backendServiceArm: 'azure-connection'
+        backendAzureRmResourceGroupName: 'rg-devops-project'
+        backendAzureRmStorageAccountName: 'tfstateprashant123'
+        backendAzureRmContainerName: 'tfstate'
+        backendAzureRmKey: 'terraform.tfstate'
+
+    # ✅ Terraform Apply
+    - task: TerraformTaskV4@4
+      displayName: Terraform Apply
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        workingDirectory: 'terraform/envs/dev'   # 🔥 IMPORTANT
+        environmentServiceNameAzureRM: 'azure-connection'
+        commandOptions: '-auto-approve'
 
 # =========================
 # BUILD STAGE
 # =========================
 - stage: Build
+  displayName: Build and Push Image
   dependsOn: Terraform
   jobs:
   - job: Build
@@ -46,6 +59,7 @@ stages:
     steps:
 
     - task: Docker@2
+      displayName: Build and Push to ACR
       inputs:
         containerRegistry: 'acr-connection'
         repository: 'flask-aks-app'
@@ -58,6 +72,7 @@ stages:
 # DEPLOY STAGE
 # =========================
 - stage: Deploy
+  displayName: Deploy to AKS
   dependsOn: Build
   jobs:
   - job: Deploy
@@ -66,6 +81,7 @@ stages:
     steps:
 
     - task: Kubernetes@1
+      displayName: Deploy to AKS
       inputs:
         connectionType: 'Kubernetes Service Connection'
         kubernetesServiceEndpoint: 'aks-connection'
