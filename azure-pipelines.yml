@@ -1,0 +1,126 @@
+trigger:
+- main
+
+variables:
+  imageName: flask-aks-app
+  acrName: prashantacrdevops01
+
+stages:
+
+# =========================
+# TERRAFORM STAGE
+# =========================
+- stage: Terraform
+  displayName: Terraform Infra Provision
+  jobs:
+  - job: Terraform
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+
+    - task: TerraformInstaller@1
+      inputs:
+        terraformVersion: '1.6.6'
+
+    - task: TerraformTaskV4@4
+      displayName: Terraform Init
+      inputs:
+        provider: 'azurerm'
+        command: 'init'
+        workingDirectory: 'terraform/envs/dev'
+        backendServiceArm: 'azure-connection'
+        backendAzureRmResourceGroupName: 'rg-devops-project'
+        backendAzureRmStorageAccountName: 'tfstateprashant123'
+        backendAzureRmContainerName: 'tfstate'
+        backendAzureRmKey: 'terraform.tfstate'
+
+    - task: TerraformTaskV4@4
+      displayName: Terraform Apply
+      inputs:
+        provider: 'azurerm'
+        command: 'apply'
+        workingDirectory: 'terraform/envs/dev'
+        environmentServiceNameAzureRM: 'azure-connection'
+        commandOptions: '-auto-approve'
+
+# =========================
+# BUILD STAGE
+# =========================
+- stage: Build
+  displayName: Build and Push Image
+  dependsOn: Terraform
+  jobs:
+  - job: Build
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+
+    - task: Docker@2
+      displayName: Build and Push to ACR
+      inputs:
+        containerRegistry: 'acr-connection'
+        repository: 'flask-aks-app'
+        command: 'buildAndPush'
+        Dockerfile: '**/Dockerfile'
+        tags: |
+          v1
+
+# =========================
+# DEPLOY STAGE
+# =========================
+- stage: Deploy
+  displayName: Deploy to AKS
+  dependsOn: Build
+  jobs:
+  - job: Deploy
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+
+    # 🔥 WAIT FOR AKS READY (SMART CHECK)
+    - task: AzureCLI@2
+      displayName: Wait for AKS Cluster Ready
+      inputs:
+        azureSubscription: 'azure-connection'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Checking AKS provisioning status..."
+
+          for i in {1..30}
+          do
+            STATUS=$(az aks show \
+              --name aks-dev \
+              --resource-group rg-devops-project \
+              --query "provisioningState" -o tsv)
+
+            echo "Current Status: $STATUS"
+
+            if [ "$STATUS" == "Succeeded" ]; then
+              echo "AKS provisioning completed."
+              break
+            fi
+
+            echo "Waiting for AKS..."
+            sleep 20
+          done
+
+          echo "Fetching credentials..."
+          az aks get-credentials \
+            --name aks-dev \
+            --resource-group rg-devops-project \
+            --overwrite-existing
+
+          echo "Validating cluster connectivity..."
+          kubectl get nodes
+
+    # ✅ DEPLOY AFTER READY
+    - task: Kubernetes@1
+      displayName: Deploy to AKS
+      inputs:
+        connectionType: 'Kubernetes Service Connection'
+        kubernetesServiceEndpoint: 'aks-connection'
+        namespace: 'default'
+        command: apply
+        useConfigurationFile: true
+        configuration: k8s/deployment.yaml
