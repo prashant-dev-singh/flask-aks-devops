@@ -18,17 +18,13 @@ stages:
       vmImage: ubuntu-latest
     steps:
 
-    # 🔥 STEP 1: Install Terraform
-    - script: |
-        wget https://releases.hashicorp.com/terraform/1.6.6/terraform_1.6.6_linux_amd64.zip
-        unzip terraform_1.6.6_linux_amd64.zip
-        sudo mv terraform /usr/local/bin/
-        terraform -version
-      displayName: Install Terraform
+    # ✅ Install Terraform (FAST & RELIABLE)
+    - task: TerraformInstaller@1
+      inputs:
+        terraformVersion: '1.6.6'
 
-    # 🔥 STEP 2: Run Terraform
+    # ✅ Run Terraform
     - task: AzureCLI@2
-      displayName: Terraform Init & Apply
       inputs:
         azureSubscription: 'azure-connection'
         scriptType: bash
