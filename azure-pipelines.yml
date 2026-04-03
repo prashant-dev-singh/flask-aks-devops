@@ -43,6 +43,7 @@ stages:
         environmentServiceNameAzureRM: 'azure-connection'
         commandOptions: '-auto-approve'
 
+
 # =========================
 # BUILD STAGE
 # =========================
@@ -65,6 +66,7 @@ stages:
         tags: |
           v1
 
+
 # =========================
 # DEPLOY STAGE
 # =========================
@@ -77,14 +79,15 @@ stages:
       vmImage: ubuntu-latest
     steps:
 
-    # 🔥 WAIT FOR AKS READY (SMART CHECK)
+    # 🔥 WAIT + DEPLOY USING AZURECLI (NO STATIC CONNECTION)
     - task: AzureCLI@2
-      displayName: Wait for AKS Cluster Ready
+      displayName: Deploy to AKS (Dynamic kubectl)
       inputs:
         azureSubscription: 'azure-connection'
         scriptType: bash
         scriptLocation: inlineScript
         inlineScript: |
+
           echo "Checking AKS provisioning status..."
 
           for i in {1..30}
@@ -105,22 +108,20 @@ stages:
             sleep 20
           done
 
-          echo "Fetching credentials..."
+          echo "Fetching AKS credentials..."
           az aks get-credentials \
             --name aks-dev \
             --resource-group rg-devops-project \
             --overwrite-existing
 
-          echo "Validating cluster connectivity..."
-          kubectl get nodes
+          echo "Waiting for API server to respond..."
 
-    # ✅ DEPLOY AFTER READY
-    - task: Kubernetes@1
-      displayName: Deploy to AKS
-      inputs:
-        connectionType: 'Kubernetes Service Connection'
-        kubernetesServiceEndpoint: 'aks-connection'
-        namespace: 'default'
-        command: apply
-        useConfigurationFile: true
-        configuration: k8s/deployment.yaml
+          for i in {1..20}
+          do
+            kubectl get nodes && break
+            echo "API not ready yet..."
+            sleep 15
+          done
+
+          echo "Deploying application..."
+          kubectl apply -f k8s/deployment.yaml
