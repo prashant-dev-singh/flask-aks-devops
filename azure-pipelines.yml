@@ -8,10 +8,32 @@ variables:
 stages:
 
 # =========================
-# BUILD & PUSH IMAGE
+# TERRAFORM STAGE
+# =========================
+- stage: Terraform
+  displayName: Terraform Infra Provision
+  jobs:
+  - job: Terraform
+    pool:
+      vmImage: ubuntu-latest
+    steps:
+
+    - task: AzureCLI@2
+      displayName: Terraform Init & Apply
+      inputs:
+        azureSubscription: 'azure-connection'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          cd terraform/envs/dev
+          terraform init
+          terraform apply -auto-approve
+
+# =========================
+# BUILD STAGE
 # =========================
 - stage: Build
-  displayName: Build and Push Image
+  dependsOn: Terraform
   jobs:
   - job: Build
     pool:
@@ -19,7 +41,6 @@ stages:
     steps:
 
     - task: Docker@2
-      displayName: Build and Push to ACR
       inputs:
         containerRegistry: 'acr-connection'
         repository: 'flask-aks-app'
@@ -29,10 +50,9 @@ stages:
           v1
 
 # =========================
-# DEPLOY TO AKS
+# DEPLOY STAGE
 # =========================
 - stage: Deploy
-  displayName: Deploy to AKS
   dependsOn: Build
   jobs:
   - job: Deploy
@@ -41,7 +61,6 @@ stages:
     steps:
 
     - task: Kubernetes@1
-      displayName: Deploy to AKS
       inputs:
         connectionType: 'Kubernetes Service Connection'
         kubernetesServiceEndpoint: 'aks-connection'
