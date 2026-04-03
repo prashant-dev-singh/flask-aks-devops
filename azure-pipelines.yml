@@ -18,31 +18,28 @@ stages:
       vmImage: ubuntu-latest
     steps:
 
-    # ✅ Install Terraform
     - task: TerraformInstaller@1
       inputs:
         terraformVersion: '1.6.6'
 
-    # ✅ Terraform Init
     - task: TerraformTaskV4@4
       displayName: Terraform Init
       inputs:
         provider: 'azurerm'
         command: 'init'
-        workingDirectory: 'terraform/envs/dev'   # 🔥 IMPORTANT
+        workingDirectory: 'terraform/envs/dev'
         backendServiceArm: 'azure-connection'
         backendAzureRmResourceGroupName: 'rg-devops-project'
         backendAzureRmStorageAccountName: 'tfstateprashant123'
         backendAzureRmContainerName: 'tfstate'
         backendAzureRmKey: 'terraform.tfstate'
 
-    # ✅ Terraform Apply
     - task: TerraformTaskV4@4
       displayName: Terraform Apply
       inputs:
         provider: 'azurerm'
         command: 'apply'
-        workingDirectory: 'terraform/envs/dev'   # 🔥 IMPORTANT
+        workingDirectory: 'terraform/envs/dev'
         environmentServiceNameAzureRM: 'azure-connection'
         commandOptions: '-auto-approve'
 
@@ -80,6 +77,44 @@ stages:
       vmImage: ubuntu-latest
     steps:
 
+    # 🔥 WAIT FOR AKS READY (SMART CHECK)
+    - task: AzureCLI@2
+      displayName: Wait for AKS Cluster Ready
+      inputs:
+        azureSubscription: 'azure-connection'
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          echo "Checking AKS provisioning status..."
+
+          for i in {1..30}
+          do
+            STATUS=$(az aks show \
+              --name aks-dev \
+              --resource-group rg-devops-project \
+              --query "provisioningState" -o tsv)
+
+            echo "Current Status: $STATUS"
+
+            if [ "$STATUS" == "Succeeded" ]; then
+              echo "AKS provisioning completed."
+              break
+            fi
+
+            echo "Waiting for AKS..."
+            sleep 20
+          done
+
+          echo "Fetching credentials..."
+          az aks get-credentials \
+            --name aks-dev \
+            --resource-group rg-devops-project \
+            --overwrite-existing
+
+          echo "Validating cluster connectivity..."
+          kubectl get nodes
+
+    # ✅ DEPLOY AFTER READY
     - task: Kubernetes@1
       displayName: Deploy to AKS
       inputs:
